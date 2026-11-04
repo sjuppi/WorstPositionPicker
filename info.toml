@@ -1,0 +1,8 @@
+[meta]
+name         = "Campaign map by worst ranking"
+author       = "Jonas E. Weneberg, copilot"
+category     = "Testing"
+version      = "1.0.1"
+
+[script]
+dependencies = [ "NadeoServices" ]
