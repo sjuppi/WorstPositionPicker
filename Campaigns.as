@@ -1,11 +1,47 @@
 const string LiveAudience = "NadeoLiveServices";
+const string CoreAudience = "NadeoServices";
 const uint CampaignPageSize = 50;
 const uint MapRecordBatchSize = 50;
+
+const int WorstPossibleScore = 2147483647;
+
+int FetchZoneTotal(const string &in mapUid, const string &in zoneId)
+{
+    auto req = NadeoServices::Get(
+        LiveAudience,
+        NadeoServices::BaseURLLive() + "/api/token/leaderboard/group/Personal_Best/map/" + mapUid +
+            "/surround/1/1?onlyWorld=false&score=" + Text::Format("%d", WorstPossibleScore)
+    );
+    req.Start();
+    while (!req.Finished()) yield();
+    if (req.ResponseCode() != 200)
+    {
+        warn("Surround request failed for " + mapUid + ": HTTP " + Text::Format("%d", req.ResponseCode()));
+        return 0;
+    }
+    trace("Surround response for " + mapUid + ": " + req.String());
+
+    auto response = Json::Parse(req.String());
+    if (response.GetType() != Json::Type::Object || !response.HasKey("tops"))
+        return 0;
+    auto tops = response["tops"];
+    for (uint i = 0; i < tops.Length; i++)
+    {
+        if (string(tops[i]["zoneId"]) != zoneId)
+            continue;
+        auto entries = tops[i]["top"];
+        int highest = 0;
+        for (uint j = 0; j < entries.Length; j++)
+            highest = Math::Max(highest, int(entries[j]["position"]));
+        return highest + 1;
+    }
+    return 0;
+}
 
 void FetchMapRecords(const string &in campaignName, array<string> &in mapUids)
 {
     string body = '{"maps":[';
-    for (uint i = 0; i < mapUids.Length(); i++)
+    for (uint i = 0; i < mapUids.Length; i++)
     {
         if (i > 0) body += ",";
         body += '{"mapUid":"' + mapUids[i] + '","groupUid":"Personal_Best"}';
@@ -54,10 +90,20 @@ void FetchMapRecords(const string &in campaignName, array<string> &in mapUids)
 
         auto zone = zones[zoneIndex];
         string zoneName = zone["zoneName"];
-        trace("Raw zone JSON: " + Json::Write(zone));
         int position = 0;
         int totalPlayers = 0;
         if (!ReadRanking(zone, position, totalPlayers))
+        {
+            // The batch endpoint reports length 0, so ask a surround query with an unbeatable score
+            auto ranking = zone["ranking"];
+            if (ranking.GetType() == Json::Type::Object && ranking.HasKey("position"))
+            {
+                position = ranking["position"];
+                string zoneId = zone["zoneId"];
+                totalPlayers = FetchZoneTotal(mapUid, zoneId);
+            }
+        }
+        if (position <= 0 || totalPlayers <= 0 || position > totalPlayers)
         {
             warn(campaignName + " | " + mapUid + " | skipped: ranking or total entry count missing/invalid (field '" + TotalPlayersField + "')");
             g_scanFailed = true;
@@ -76,7 +122,7 @@ void FetchCampaignMapRankings()
 {
     if (g_fetching)
         return;
-    if (CacheIsFresh() && g_worstMaps.Length() > 0)
+    if (CacheIsFresh() && g_worstMaps.Length > 0)
     {
         ReportWorstMaps();
         return;
@@ -94,7 +140,7 @@ void FetchCampaignMapRankings()
 
     g_fetching = true;
     g_cacheValid = false;
-    g_worstMaps.RemoveRange(0, g_worstMaps.Length());
+    g_worstMaps.RemoveRange(0, g_worstMaps.Length);
     g_scanned = 0;
     g_scanFailed = false;
     uint offset = Setting_CampaignSelection == CampaignSelection::SelectedCampaign

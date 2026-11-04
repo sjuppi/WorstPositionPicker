@@ -1,4 +1,3 @@
-const uint MaxCachedMaps = 10;
 const uint64 CacheDurationMs = 30 * 60 * 1000;
 const string TotalPlayersField = "length";
 
@@ -83,8 +82,8 @@ bool IsWorse(int pos, int total, const WorstCandidate &in candidate)
 void ConsiderCandidate(const string &in campaign, const string &in mapUid, const string &in zone, int pos, int total)
 {
     g_scanned++;
-    uint insertAt = g_worstMaps.Length();
-        for (uint i = 0; i < g_worstMaps.Length(); i++)
+    uint insertAt = g_worstMaps.Length;
+        for (uint i = 0; i < g_worstMaps.Length; i++)
     {
         if (IsWorse(pos, total, g_worstMaps[i]))
         {
@@ -102,7 +101,7 @@ void ConsiderCandidate(const string &in campaign, const string &in mapUid, const
     candidate.position = pos;
     candidate.totalPlayers = total;
     g_worstMaps.InsertAt(insertAt, candidate);
-    if (g_worstMaps.Length() > MaxCachedMaps)
+    if (g_worstMaps.Length > MaxCachedMaps)
         g_worstMaps.RemoveLast();
 }
 
@@ -129,7 +128,7 @@ int SelectedZoneIndex(uint zoneCount)
 
 void ReportWorstMaps()
 {
-    if (g_worstMaps.Length() == 0)
+    if (g_worstMaps.Length == 0)
     {
         if (g_scanned > 0 && CacheIsFresh())
         {
@@ -139,7 +138,7 @@ void ReportWorstMaps()
         warn("No map could be evaluated (scanned: " + Text::Format("%d", g_scanned) + ").");
         return;
     }
-    for (uint i = 0; i < g_worstMaps.Length(); i++)
+    for (uint i = 0; i < g_worstMaps.Length; i++)
     {
         auto candidate = g_worstMaps[i];
         print(
@@ -149,13 +148,50 @@ void ReportWorstMaps()
             Text::Format("%d", candidate.totalPlayers)
         );
     }
+    startnew(PlayWorstMap);
+}
+
+void PlayWorstMap()
+{
+    if (g_worstMaps.Length == 0)
+        return;
+    string mapUid = g_worstMaps[0].mapUid;
+
+    while (!NadeoServices::IsAuthenticated(CoreAudience)) yield();
+    auto req = NadeoServices::Get(
+        CoreAudience,
+        NadeoServices::BaseURLCore() + "/maps/?mapUidList=" + mapUid
+    );
+    req.Start();
+    while (!req.Finished()) yield();
+    if (req.ResponseCode() != 200)
+    {
+        warn("Could not look up map " + mapUid + ": HTTP " + Text::Format("%d", req.ResponseCode()));
+        return;
+    }
+    auto maps = Json::Parse(req.String());
+    if (maps.GetType() != Json::Type::Array || maps.Length == 0)
+    {
+        warn("Map not found: " + mapUid);
+        return;
+    }
+    string fileUrl = maps[0]["fileUrl"];
+
+    auto app = cast<CTrackMania>(GetApp());
+    if (app.RootMap !is null)
+    {
+        app.BackToMainMenu();
+        while (!app.ManiaTitleControlScriptAPI.IsReady) yield();
+    }
+    print("Loading map " + mapUid);
+    app.ManiaTitleControlScriptAPI.PlayMap(fileUrl, "TrackMania/TM_PlayMap_Local", "");
 }
 
 void PopPlayedMap(const string &in mapUid)
 {
     if (mapUid.Length == 0)
         return;
-    for (int i = int(g_worstMaps.Length()) - 1; i >= 0; i--)
+    for (int i = int(g_worstMaps.Length) - 1; i >= 0; i--)
     {
         if (g_worstMaps[i].mapUid == mapUid)
         {

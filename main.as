@@ -1,5 +1,7 @@
 void Main()
 {
+    NadeoServices::AddAudience(LiveAudience);
+    NadeoServices::AddAudience(CoreAudience);
     while (true)
     {
         CTrackMania@ app = cast<CTrackMania@>(GetApp());
